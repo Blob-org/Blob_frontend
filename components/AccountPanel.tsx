@@ -5,11 +5,14 @@ import { useAuth } from "@/app/providers";
 import { ApiError, api } from "@/lib/api";
 
 // Lets the user erase their account and every file (GDPR right to erasure).
-// Asks for the password again; auth_service checks it.
+// Asks for the password again, and a code when MFA is on; auth_service
+// checks both.
 export function AccountPanel() {
-    const { deleteAccount, sessionExpired } = useAuth();
+    const { deleteAccount, sessionExpired, state } = useAuth();
+    const mfaEnabled = state.status === "signedIn" && state.user.mfaEnabled;
     const [open, setOpen] = useState(false);
     const [password, setPassword] = useState("");
+    const [code, setCode] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -19,14 +22,19 @@ export function AccountPanel() {
         setBusy(true);
         try {
             // On success the provider signs out and the page leaves.
-            await deleteAccount(password);
+            await deleteAccount(password, mfaEnabled ? code : undefined);
         } catch (caught) {
             if (caught instanceof ApiError && caught.status === 401) {
                 if (!api.isSignedIn) {
                     sessionExpired();
                     return;
                 }
-                setError("That password is wrong.");
+                setError(
+                    caught.message === "Invalid code"
+                        ? "That code is wrong. Enter the current code from your app."
+                        : "That password is wrong.",
+                );
+                setCode("");
             } else if (caught instanceof ApiError && caught.status === 502) {
                 setError(
                     "Your files couldn't be erased right now, so nothing was deleted. Try again shortly.",
@@ -71,6 +79,23 @@ export function AccountPanel() {
                             }
                         />
                     </label>
+                    {mfaEnabled && (
+                        <label>
+                            Code from your authenticator app (or a recovery
+                            code)
+                            <input
+                                autoComplete="one-time-code"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                placeholder="123456"
+                                required
+                                value={code}
+                                onChange={(event) =>
+                                    setCode(event.target.value)
+                                }
+                            />
+                        </label>
+                    )}
                     {error && (
                         <p className="error" role="alert">
                             {error}
@@ -84,6 +109,7 @@ export function AccountPanel() {
                             onClick={() => {
                                 setOpen(false);
                                 setPassword("");
+                                setCode("");
                                 setError(null);
                             }}
                         >
@@ -92,7 +118,11 @@ export function AccountPanel() {
                         <button
                             type="submit"
                             className="danger"
-                            disabled={busy || password === ""}
+                            disabled={
+                                busy ||
+                                password === "" ||
+                                (mfaEnabled && code === "")
+                            }
                         >
                             {busy ? "Deleting…" : "Delete my account and files"}
                         </button>

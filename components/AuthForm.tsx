@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAuth } from "@/app/providers";
 import { ApiError } from "@/lib/api";
+import { MfaCodeForm } from "./MfaCodeForm";
 
 const COPY = {
     login: {
@@ -46,6 +47,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const router = useRouter();
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    // Set when the password was right and MFA needs a code next.
+    const [mfaToken, setMfaToken] = useState<string | null>(null);
 
     useEffect(() => {
         if (auth.state.status === "signedIn") router.replace("/");
@@ -59,14 +62,31 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         setBusy(true);
         setError(null);
         try {
-            await (mode === "login"
-                ? auth.login(email, password)
-                : auth.register(email, password));
+            if (mode === "login") {
+                const { mfaToken } = await auth.login(email, password);
+                if (mfaToken) setMfaToken(mfaToken);
+            } else {
+                await auth.register(email, password);
+            }
         } catch (caught) {
             setError(messageFor(caught, mode));
         } finally {
             setBusy(false);
         }
+    }
+
+    if (mfaToken) {
+        return (
+            <main className="auth-page">
+                <MfaCodeForm
+                    mfaToken={mfaToken}
+                    onRestart={(message) => {
+                        setMfaToken(null);
+                        setError(message);
+                    }}
+                />
+            </main>
+        );
     }
 
     return (

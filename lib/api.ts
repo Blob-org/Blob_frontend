@@ -5,7 +5,15 @@
 // The access token lives only in this closure (memory), as auth_service
 // requires; the refresh token is an httpOnly cookie the browser sends itself.
 
-export type User = { id: string; email: string };
+export type User = { id: string; email: string; mfaEnabled: boolean };
+
+// With MFA on, the password alone doesn't sign in: the caller finishes with
+// loginMfa(mfaToken, code).
+export type LoginResult =
+    | { mfaRequired: false }
+    | { mfaRequired: true; mfaToken: string };
+
+export type MfaSetup = { secret: string; otpauthUrl: string };
 
 export type StoredFile = {
     id: string;
@@ -30,6 +38,8 @@ export class ApiError extends Error {
     constructor(
         message: string,
         readonly status: number,
+        // Set by POST /login/mfa when the sign-in must start over.
+        readonly restart = false,
     ) {
         super(message);
         this.name = "ApiError";
@@ -65,7 +75,7 @@ export function createApi({
             typeof body?.error === "string"
                 ? body.error
                 : `Request failed (${response.status})`;
-        return new ApiError(message, response.status);
+        return new ApiError(message, response.status, body?.restart === true);
     }
 
     async function json<T>(response: Response): Promise<T> {
@@ -106,6 +116,24 @@ export function createApi({
         return response;
     }
 
+    // For calls where auth_service answers a wrong password or code with
+    // 401: `authed` would take that for an expired session and sign the user
+    // out. These start from a fresh token and are sent once.
+    async function sendFresh(path: string, init: RequestInit) {
+        if (!(await refresh())) {
+            throw new ApiError("Your session has expired.", 401);
+        }
+        const response = await send(path, init);
+        if (!response.ok) throw await errorFrom(response);
+        return response;
+    }
+
+    const jsonInit = (method: string, body: unknown): RequestInit => ({
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+
     function postJson(path: string, body: unknown) {
         return send(path, {
             method: "POST",
@@ -127,11 +155,47 @@ export function createApi({
             );
         },
 
-        async login(email: string, password: string): Promise<void> {
+        async login(email: string, password: string): Promise<LoginResult> {
+            const body = await json<
+                | { accessToken: string }
+                | { mfaRequired: true; mfaToken: string }
+            >(await postJson("/api/auth/login", { email, password }));
+            if ("mfaToken" in body) {
+                return { mfaRequired: true, mfaToken: body.mfaToken };
+            }
+            accessToken = body.accessToken;
+            return { mfaRequired: false };
+        },
+
+        // The second login step: a code from the authenticator app or a
+        // recovery code. ApiError.restart means log in again from the start.
+        async loginMfa(mfaToken: string, code: string): Promise<void> {
             const body = await json<{ accessToken: string }>(
-                await postJson("/api/auth/login", { email, password }),
+                await postJson("/api/auth/login/mfa", { mfaToken, code }),
             );
             accessToken = body.accessToken;
+        },
+
+        async mfaSetup(): Promise<MfaSetup> {
+            return json<MfaSetup>(
+                await authed("/api/auth/mfa/setup", { method: "POST" }),
+            );
+        },
+
+        // Returns the recovery codes; the server shows them only this once.
+        async mfaEnable(code: string): Promise<string[]> {
+            const response = await sendFresh(
+                "/api/auth/mfa/enable",
+                jsonInit("POST", { code }),
+            );
+            return (await response.json()).recoveryCodes;
+        },
+
+        async mfaDisable(password: string, code: string): Promise<void> {
+            await sendFresh(
+                "/api/auth/mfa/disable",
+                jsonInit("POST", { password, code }),
+            );
         },
 
         async logout(): Promise<void> {
@@ -173,19 +237,12 @@ export function createApi({
         },
 
         // Permanently deletes the account and every file (GDPR erasure).
-        // auth_service answers a wrong password with 401 too, so this can't
-        // go through `authed`, which would treat that as an expired session
-        // and sign the user out. Instead it starts from a fresh token.
-        async deleteAccount(password: string): Promise<void> {
-            if (!(await refresh())) {
-                throw new ApiError("Your session has expired.", 401);
-            }
-            const response = await send("/api/auth/me", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password }),
-            });
-            if (!response.ok) throw await errorFrom(response);
+        // `code` is needed when MFA is on.
+        async deleteAccount(password: string, code?: string): Promise<void> {
+            await sendFresh(
+                "/api/auth/me",
+                jsonInit("DELETE", code ? { password, code } : { password }),
+            );
             accessToken = null;
         },
 
