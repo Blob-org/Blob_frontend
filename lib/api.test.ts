@@ -53,12 +53,16 @@ test("an expired token is refreshed once and the request retried", async () => {
         ok({ accessToken: "old" }),
         status(401),
         ok({ accessToken: "new" }),
-        ok({ id: "u1", email: "me@example.com" }),
+        ok({ id: "u1", email: "me@example.com", mfaEnabled: false }),
     ]);
     const api = createApi({ baseUrl: "http://gw", fetch });
     await api.login("me@example.com", "password123");
 
-    expect(await api.me()).toEqual({ id: "u1", email: "me@example.com" });
+    expect(await api.me()).toEqual({
+        id: "u1",
+        email: "me@example.com",
+        mfaEnabled: false,
+    });
     expect(calls.map((c) => c.url.replace("http://gw", ""))).toEqual([
         "/api/auth/login",
         "/api/auth/me",
@@ -215,6 +219,118 @@ test("deleteAccount reports an expired session without calling DELETE", async ()
     expect(error.status).toBe(401);
     expect(calls).toHaveLength(1);
     expect(api.isSignedIn).toBe(false);
+});
+
+test("login with MFA on returns the mfaToken and doesn't sign in", async () => {
+    const { fetch } = fakeFetch([ok({ mfaRequired: true, mfaToken: "m1" })]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    expect(await api.login("me@example.com", "password123")).toEqual({
+        mfaRequired: true,
+        mfaToken: "m1",
+    });
+    expect(api.isSignedIn).toBe(false);
+});
+
+test("login without MFA signs in and says so", async () => {
+    const { fetch } = fakeFetch([ok({ accessToken: "t" })]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    expect(await api.login("me@example.com", "password123")).toEqual({
+        mfaRequired: false,
+    });
+    expect(api.isSignedIn).toBe(true);
+});
+
+test("loginMfa sends the token and code, then signs in", async () => {
+    const { fetch, calls } = fakeFetch([ok({ accessToken: "t2" })]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    await api.loginMfa("m1", "123456");
+    expect(calls[0]?.url).toBe("http://gw/api/auth/login/mfa");
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+        mfaToken: "m1",
+        code: "123456",
+    });
+    expect(api.isSignedIn).toBe(true);
+});
+
+test("loginMfa errors say whether to start over", async () => {
+    const { fetch } = fakeFetch([
+        status(401, { error: "Invalid code" }),
+        status(401, { error: "Your sign-in expired.", restart: true }),
+    ]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    const wrong = await api.loginMfa("m1", "000000").catch((e) => e);
+    expect(wrong).toBeInstanceOf(ApiError);
+    expect(wrong.restart).toBe(false);
+    const expired = await api.loginMfa("m1", "000000").catch((e) => e);
+    expect(expired.restart).toBe(true);
+    expect(api.isSignedIn).toBe(false);
+});
+
+test("mfaSetup returns the secret and link", async () => {
+    const setup = { secret: "JBSW", otpauthUrl: "otpauth://totp/x" };
+    const { fetch, calls } = fakeFetch([ok({ accessToken: "t" }), ok(setup)]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+    await api.login("me@example.com", "password123");
+
+    expect(await api.mfaSetup()).toEqual(setup);
+    expect(calls[1]?.url).toBe("http://gw/api/auth/mfa/setup");
+    expect(calls[1]?.init.method).toBe("POST");
+    expect(calls[1]?.auth).toBe("Bearer t");
+});
+
+test("mfaEnable returns the recovery codes; a wrong code keeps the user signed in", async () => {
+    const { fetch, calls } = fakeFetch([
+        ok({ accessToken: "a" }),
+        status(401, { error: "Invalid code" }),
+        ok({ accessToken: "b" }),
+        ok({ recoveryCodes: ["abcde-fghij"] }),
+    ]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    const wrong = await api.mfaEnable("000000").catch((e) => e);
+    expect(wrong.status).toBe(401);
+    expect(api.isSignedIn).toBe(true);
+
+    expect(await api.mfaEnable("123456")).toEqual(["abcde-fghij"]);
+    expect(calls[3]?.url).toBe("http://gw/api/auth/mfa/enable");
+    expect(calls[3]?.auth).toBe("Bearer b");
+    expect(JSON.parse(String(calls[3]?.init.body))).toEqual({
+        code: "123456",
+    });
+});
+
+test("mfaDisable sends the password and code", async () => {
+    const { fetch, calls } = fakeFetch([
+        ok({ accessToken: "a" }),
+        () => new Response(null, { status: 204 }),
+    ]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    await api.mfaDisable("password123", "123456");
+    expect(calls[1]?.url).toBe("http://gw/api/auth/mfa/disable");
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+        password: "password123",
+        code: "123456",
+    });
+    expect(api.isSignedIn).toBe(true);
+});
+
+test("deleteAccount sends the code when given one", async () => {
+    const { fetch, calls } = fakeFetch([
+        ok({ accessToken: "a" }),
+        () => new Response(null, { status: 204 }),
+    ]);
+    const api = createApi({ baseUrl: "http://gw", fetch });
+
+    await api.deleteAccount("password123", "123456");
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual({
+        password: "password123",
+        code: "123456",
+    });
 });
 
 test("formatBytes", () => {

@@ -75,6 +75,14 @@ button.secondary.danger {
     color: var(--error);
 }
 
+button.link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 button:disabled {
     opacity: 0.6;
     cursor: default;
@@ -136,6 +144,14 @@ label {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+}
+
+.auth-links {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
 }
 
 /* Files page */
@@ -211,8 +227,72 @@ label {
     margin-left: 0.5rem;
 }
 
-.danger-zone {
+.danger-zone,
+.mfa-panel {
     margin-top: 1.5rem;
+}
+
+.mfa-panel h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.mfa-panel form,
+.danger-zone form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mfa-panel .muted {
+    margin-bottom: 1rem;
+}
+
+.toolbar.end {
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
+.steps {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.steps li > * {
+    display: block;
+}
+
+.qr {
+    margin: 0.75rem 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+}
+
+.secret {
+    margin-top: 0.25rem;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+    /* Wrap between the groups of four, not inside them. */
+    overflow-wrap: anywhere;
+}
+
+.recovery-codes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.5rem;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    list-style: none;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+}
+
+.recovery-codes code {
+    font-size: 1rem;
 }
 
 .danger-zone h2 {

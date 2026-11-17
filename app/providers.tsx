@@ -18,12 +18,17 @@ type AuthState =
 
 type AuthContextValue = {
     state: AuthState;
-    login(email: string, password: string): Promise<void>;
+    // Signs in, or returns the mfaToken when a code is needed next.
+    login(email: string, password: string): Promise<{ mfaToken?: string }>;
+    // The code step of a login with MFA. ApiError.restart means start over.
+    completeMfa(mfaToken: string, code: string): Promise<void>;
     register(email: string, password: string): Promise<void>;
     logout(): Promise<void>;
     // Deletes the account and all files; throws ApiError (e.g. wrong
     // password) and stays signed in if it fails.
-    deleteAccount(password: string): Promise<void>;
+    deleteAccount(password: string, code?: string): Promise<void>;
+    // Re-reads the user, e.g. after MFA was turned on or off.
+    reloadUser(): Promise<void>;
     // Called when a request finds the session gone (refresh failed).
     sessionExpired(): void;
 };
@@ -55,7 +60,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const login = useCallback(async (email: string, password: string) => {
-        await api.login(email, password);
+        const result = await api.login(email, password);
+        if (result.mfaRequired) return { mfaToken: result.mfaToken };
+        setState({ status: "signedIn", user: await api.me() });
+        return {};
+    }, []);
+
+    const completeMfa = useCallback(async (mfaToken: string, code: string) => {
+        await api.loginMfa(mfaToken, code);
+        setState({ status: "signedIn", user: await api.me() });
+    }, []);
+
+    const reloadUser = useCallback(async () => {
         setState({ status: "signedIn", user: await api.me() });
     }, []);
 
@@ -72,10 +88,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState({ status: "signedOut" });
     }, []);
 
-    const deleteAccount = useCallback(async (password: string) => {
-        await api.deleteAccount(password);
-        setState({ status: "signedOut" });
-    }, []);
+    const deleteAccount = useCallback(
+        async (password: string, code?: string) => {
+            await api.deleteAccount(password, code);
+            setState({ status: "signedOut" });
+        },
+        [],
+    );
 
     const sessionExpired = useCallback(() => {
         setState({ status: "signedOut" });
@@ -85,12 +104,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         () => ({
             state,
             login,
+            completeMfa,
             register,
             logout,
             deleteAccount,
+            reloadUser,
             sessionExpired,
         }),
-        [state, login, register, logout, deleteAccount, sessionExpired],
+        [
+            state,
+            login,
+            completeMfa,
+            register,
+            logout,
+            deleteAccount,
+            reloadUser,
+            sessionExpired,
+        ],
     );
     return <AuthContext value={value}>{children}</AuthContext>;
 }
