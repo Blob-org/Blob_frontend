@@ -88,6 +88,17 @@ The cookie is set on this app's own address (auth_service's response passes back
 
 Husky runs Biome on commit. On push, it checks the branch name and runs typecheck and tests. GitHub Actions also runs the build.
 
+**Security** (`.github/workflows/security.yml`, on every PR, on push to `main` and weekly):
+
+| Job | What it checks |
+| --- | --- |
+| `secrets (gitleaks)` | No secrets anywhere in the git history. |
+| `dependencies (bun audit)` | No known vulnerabilities of moderate severity or above in the dependencies. One dev-only advisory is ignored, with the reason given in the workflow. |
+| `codeql (…)` | Static analysis of the TypeScript and of the workflow files. Findings appear under the repo's **Security → Code scanning**. |
+| `image (trivy)` | Builds the Docker image and fails on HIGH or CRITICAL vulnerabilities that have a fix, or on secrets baked into the image. |
+
+Dependabot (`.github/dependabot.yml`) opens weekly update PRs for dependencies, the base image and the GitHub Actions. It skips releases younger than 14 days. Each release gets an SBOM (`sbom.cdx.json`, CycloneDX) listing everything in the image.
+
 ## PR rules
 
 Same as auth_service: branches are named `<feat|fix|docs|chore>/<issue number>-short-slug`, and a PR needs a type label (`feature`, `enhancement`, `bug`, `documentation`) and a reference to an open issue. With Claude Code, "ship this" uses the `ship-pr` skill in `.claude/skills/`.
