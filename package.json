@@ -18,14 +18,14 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
-    "@types/bun": "^1.4.3",
+    "@biomejs/biome": "^2.6.5",
+    "@types/bun": "^1.4.4",
     "@types/qrcode": "1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
-    "typescript": "^5"
+    "typescript": "^7"
   },
   "packageManager": "bun@1.4.2",
   "ignoreScripts": [
