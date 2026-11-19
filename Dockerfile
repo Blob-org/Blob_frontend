@@ -17,7 +17,7 @@ ENV GATEWAY_URL=$GATEWAY_URL \
     NEXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
-FROM node:24-alpine
+FROM node:25-alpine
 
 # The standalone server only needs `node`. npm, yarn and corepack ship with
 # the image and carry their own CVEs, so remove them.
