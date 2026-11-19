@@ -1,5 +1,5 @@
 # Build with Bun, run the standalone Next.js server with Node.
-FROM oven/bun:1.4.2-alpine AS build
+FROM oven/bun:1.4.4-alpine AS build
 
 WORKDIR /app
 
@@ -18,6 +18,12 @@ ENV GATEWAY_URL=$GATEWAY_URL \
 RUN bun run build
 
 FROM node:24-alpine
+
+# The standalone server only needs `node`. npm, yarn and corepack ship with
+# the image and carry their own CVEs, so remove them.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+        /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 
 WORKDIR /app
 ENV NODE_ENV=production \
